@@ -1,0 +1,157 @@
+=============================================================================
+ spotify2yt - QUICK RUN GUIDE (TL;DR)
+ Location: C:\Users\csp\Projects\spotify2yt
+ Always run commands from this folder, or use the full path to s2y.cmd.
+=============================================================================
+
+WHAT THIS DOES
+  Copies a Spotify playlist into YouTube Music as playlist entries.
+  It does NOT download audio. Thousands of tracks supported, resumable.
+  sync only ADDS tracks - it never deletes anything from YouTube.
+
+
+-----------------------------------------------------------------------------
+STEP 0 - SANITY CHECK (do this first)
+-----------------------------------------------------------------------------
+  cd C:\Users\csp\Projects\spotify2yt
+  .\s2y.cmd doctor
+
+  Green checks for Spotify + YouTube Music = you're good.
+  Red = do Step 1 and/or Step 3 again.
+  (Tests, if you ever want to verify the tool itself:
+     .\.venv\Scripts\python.exe -m unittest discover -s tests -v)
+
+
+-----------------------------------------------------------------------------
+STEP 1 - SPOTIFY APP + LOGIN  (one time, ~2 minutes)
+-----------------------------------------------------------------------------
+  1. Go to https://developer.spotify.com/dashboard and log in.
+  2. Create app -> any name/description (e.g. "spotify2yt").
+  3. Under "Redirect URIs" add EXACTLY this line:
+         http://127.0.0.1:8888/callback
+  4. Save, open the app, copy the CLIENT ID.
+     (Client Secret is NOT needed - we use PKCE.)
+
+  Put the Client ID into .env so the line looks like:
+         SPOTIFY_CLIENT_ID=abc123yourclientid
+
+  Or do it from PowerShell in one shot:
+     cd C:\Users\csp\Projects\spotify2yt
+     (Get-Content .env) -replace '^SPOTIFY_CLIENT_ID=.*', 'SPOTIFY_CLIENT_ID=YOUR_ID_HERE' | Set-Content .env
+
+  Then log in:
+     .\s2y.cmd spotify-login
+
+  A browser tab opens - approve it. Token is cached and auto-refreshes.
+  Stored at: %USERPROFILE%\.spotify2yt\auth\spotify_token.json
+
+  NOTE: Spotify's Web API now requires PREMIUM. If login complains about
+  Premium, skip to "NO PREMIUM? USE IMPORT" near the bottom.
+
+
+-----------------------------------------------------------------------------
+STEP 2 - YOUTUBE MUSIC LOGIN  (repeat when it expires, ~monthly)
+-----------------------------------------------------------------------------
+  1. Open https://music.youtube.com in Chrome/Edge, signed in.
+  2. Press F12 -> Network tab -> reload the page.
+  3. Click any request to music.youtube.com (e.g. "browse").
+  4. Scroll to Request Headers -> right-click -> "Copy all as cURL"
+     (or just copy the headers).
+  5. Back in terminal:
+
+         cd C:\Users\csp\Projects\spotify2yt
+         .\s2y.cmd yt-login --from-clipboard
+
+     If clipboard parsing fails, save the headers to a file and run:
+         .\s2y.cmd yt-login --headers-file headers.txt
+
+  Stored at: %USERPROFILE%\.spotify2yt\auth\browser.json
+  If YouTube calls start failing later (HTTP 401/403), just redo Step 2.
+  Keep S2Y_DELAY=1.0 or higher - going faster risks HTTP 429 rate limits.
+
+
+-----------------------------------------------------------------------------
+STEP 3 - NORMAL RUN (playlist transfer)
+-----------------------------------------------------------------------------
+  cd C:\Users\csp\Projects\spotify2yt
+
+  .\s2y.cmd playlists              # list your Spotify playlists
+  .\s2y.cmd export "Playlist Name" # pull tracks into local state
+  .\s2y.cmd match                  # search YouTube Music + score matches
+  .\s2y.cmd review                 # only if some tracks need a decision
+  .\s2y.cmd sync --dry-run         # preview, changes nothing
+  .\s2y.cmd sync                   # actually add to YouTube Music
+
+  SMALL TEST FIRST (recommended for a new playlist):
+  .\s2y.cmd match --limit 20
+  .\s2y.cmd review
+  .\s2y.cmd sync --dry-run
+
+  Then drop --limit and let it grind through everything.
+
+  Safety / resume behaviour:
+    * Progress is saved per track in SQLite. If it crashes halfway, rerun
+      the same "match" and "sync" - it picks up where it stopped.
+    * Search results are cached for 30 days, so reruns are fast.
+    * sync reconciles videos already in the playlist and adds missing ones.
+    * sync NEVER deletes tracks from your YouTube playlist.
+
+
+-----------------------------------------------------------------------------
+NO PREMIUM? USE IMPORT INSTEAD OF EXPORT
+-----------------------------------------------------------------------------
+  Use any CSV/JSON playlist export and skip the Spotify API entirely:
+
+     .\s2y.cmd import "playlist.csv" --name "My Playlist"
+     .\s2y.cmd match
+     .\s2y.cmd review
+     .\s2y.cmd sync
+
+  CSV columns: title, artist, album, duration_ms, isrc
+
+
+-----------------------------------------------------------------------------
+USEFUL EXTRAS
+-----------------------------------------------------------------------------
+  .\s2y.cmd status     # what's in the DB / progress so far
+  .\s2y.cmd find "..." # look up a track in local state
+  .\s2y.cmd review     # re-open the review queue
+  .\s2y.cmd apply-review  # after editing the review CSV
+
+  Config lives in .env:
+     S2Y_DELAY=1.0            seconds between YouTube requests (don't go <0.5)
+     S2Y_AUTO_THRESHOLD=0.80  score needed to auto-accept a match
+     S2Y_REVIEW_THRESHOLD=0.50 below this it's "unmatched", not "review"
+     S2Y_SEARCH_LIMIT=8       results scored per track
+     S2Y_BATCH_SIZE=20        videos per YouTube request
+     S2Y_CACHE_TTL_DAYS=30    search cache lifetime
+
+  Data/state lives in: %USERPROFILE%\.spotify2yt\
+     state.db, auth\spotify_token.json, auth\browser.json, exports\
+
+  Full docs: README.md in this folder.
+
+
+-----------------------------------------------------------------------------
+TROUBLESHOOTING
+-----------------------------------------------------------------------------
+  "command not found" / s2y.cmd won't run
+      -> cd into C:\Users\csp\Projects\spotify2yt first, or call the full path.
+
+  Odd matches / wrong versions (live, remix, cover)
+      -> default thresholds handle most cases; for persistent problems raise
+         S2Y_AUTO_THRESHOLD (e.g. 0.85) and use the review queue.
+
+  HTTP 429 from YouTube
+      -> raise S2Y_DELAY (e.g. 2.0) and wait a bit before rerunning.
+
+  HTTP 401/403 from YouTube
+      -> headers expired. Redo Step 2 (yt-login).
+
+  Spotify login fails / Premium error
+      -> use the import path above.
+
+  Note: ytmusicapi is unofficial and may break when YouTube changes things,
+  and heavy use may brush against YouTube's ToS. Use your own account,
+  keep the delay modest.
+=============================================================================

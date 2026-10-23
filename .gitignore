@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+headers.txt
+browser.json
+browser.json.bak-*
+oauth.json
+*.db
+*.db-shm
+*.db-wal
+exports/
+build/
+dist/
+*.egg-info/
+.pytest_cache/
